@@ -1,4 +1,4 @@
-# Genomics
+# Genomics Chinook
 
 This folder contains all the codes necessary to run the genomic analysis of the article "Genetic basis of latitudinal adaptation in Chinook salmon".
 
@@ -20,4 +20,3 @@ Using the reference genome here: https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/01
 06.script.compute.mean.results.per.gene.and.sliding.window.r compute the mean -log10pvalue and Bayes Factor per gene and per sliding window of 50 SNP.
 
 07.script.analyses.results.BAYPASS.and.BGLMER.r script computing the results found in the main text testing whether each region fall in the top 5%.
-
