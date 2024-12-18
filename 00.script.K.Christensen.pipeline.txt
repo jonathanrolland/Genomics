@@ -1,0 +1,509 @@
+# This script was written by K. Christensen
+# The script describes the pipeline to generates the vcf file FirstFilter.GATK.gt3.vcftools.biallele.mm0.9.maf0.05.meanDP5-200 used for further analyses
+# It starts from the "XXX_R1.fastq.gz" and "XXX_R2.fastq.gz" available here: https://www.ncbi.nlm.nih.gov/bioproject/PRJNA694998
+# the reference genome is available here:
+# https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/018/296/145/GCF_018296145.1_Otsh_v2.0/GCF_018296145.1_Otsh_v2.0_genomic.gff.gz
+
+===========================================================
+
+###Align reads, add read groups, mark duplicates, and index 
+
+	###Genome used: GCA_018296145.1_Otsh_v2.0_genomic_wMito.fna
+	###Example script for alignment
+		#!/bin/bash
+		#SBATCH --mail-user=kris.christensen@wsu.edu
+		#SBATCH --mail-type=ALL
+		#SBATCH --time=96:00:00
+		#SBATCH --mem=192000M
+		#SBATCH --account=rrg-bkoop-ad
+		#SBATCH --cpus-per-task=48
+		#SBATCH --array=168-193%20
+		#SBATCH --job-name=Otsh.BWA.MEM
+		#SBATCH --output=/scratch/kchriste/Otsh/gatk/output/bwa.alignment.20May2021.%A_%a.out
+		#SBATCH --error=/scratch/kchriste/Otsh/gatk/output/bwa.alignment.20May2021.%A_%a.err
+
+		#####################################
+		### Programs Used ###################
+		#####################################
+
+		module load nixpkgs/16.09
+		module load gcc/8.3.0
+		module load bwa/0.7.15
+		module load samtools/1.9
+		module load picard/2.18.9
+
+		#####################################
+		### Variables #######################
+		#####################################
+
+		arrayfile=`ls *_R1.fastq.gz | sed 's/_R1.fastq.gz//g' | awk -v line=$SLURM_ARRAY_TASK_ID '{if(NR==line) print $0}'`
+		arrayfile1="${arrayfile}_R1.fastq.gz"
+		arrayfile2="${arrayfile}_R2.fastq.gz"
+
+		outfile1="$arrayfile.sorted.bam"
+		outfile2="$arrayfile.RG.sorted.bam"
+		outfile3="$arrayfile.MD.RG.sorted.bam"
+
+		FIRST_READPREFIX=$arrayfile
+		FIRST_READ_HEADER=`zcat $arrayfile1 | head -n 1`
+		IFS=':' read -ra FIRST_READ_HEADER_ARRAY <<< ${FIRST_READ_HEADER}
+		FIRST_RG_FLOWCELL_ID=${FIRST_READ_HEADER_ARRAY[2]}
+		FIRST_RG_LANE=${FIRST_READ_HEADER_ARRAY[3]}
+		FIRST_RG_SAMPLE_NUMBER=${FIRST_READ_HEADER_ARRAY[9]}
+			
+		FIRST_RGID="${FIRST_RG_FLOWCELL_ID}.${FIRST_RG_LANE}"
+		FIRST_RGPU="${FIRST_RG_FLOWCELL_ID}.${FIRST_RG_LANE}.${FIRST_RG_SAMPLE_NUMBER}"
+
+		genome=`ls /scratch/kchriste/Otsh/gatk/genome/GCA_018296145.1_Otsh_v2.0_genomic_wMito.fna`
+
+		#####################################
+		### Execution of programs ###########
+		#####################################
+
+		# ---------------------------------------------------------------------
+		echo "Current working directory: `pwd`"
+		echo "Starting run at: `date`"
+		echo "SLURM_JOBID: " $SLURM_JOBID
+		echo "SLURM_ARRAY_TASK_ID: " $SLURM_ARRAY_TASK_ID
+		echo "SLURM_ARRAY_JOB_ID: " $SLURM_ARRAY_JOB_ID
+		echo "File Name: " $arrayfile
+		# ---------------------------------------------------------------------
+		echo ""
+
+		#### Align Sequences Using BWA Mem ########
+		bwa mem -M -t 46 $genome $arrayfile1 $arrayfile2 \
+		| samtools sort -@46 -o /scratch/kchriste/Otsh/gatk/alns/$outfile1
+
+		# ---------------------------------------------------------------------
+		echo "Finished alignment at: `date`"
+		# ---------------------------------------------------------------------
+		echo ""
+
+		#### Add read group information #########
+		java -Xms64g -Xmx130g -jar $EBROOTPICARD/picard.jar AddOrReplaceReadGroups USE_JDK_INFLATER=true USE_JDK_DEFLATER=true \
+		I=/scratch/kchriste/Otsh/gatk/alns/$outfile1 O=/scratch/kchriste/Otsh/gatk/alns/$outfile2 \
+		RGID=$FIRST_RGID RGPU=$FIRST_RGPU RGPL=ILLUMINA RGLB=Lib-$arrayfile RGSM=$arrayfile VALIDATION_STRINGENCY=LENIENT
+
+		# ---------------------------------------------------------------------
+		echo "Finished adding read group information at: `date`"
+		# ---------------------------------------------------------------------
+		echo ""
+
+		#### Index sam file #########
+		samtools index /scratch/kchriste/Otsh/gatk/alns/$outfile2
+
+		# ---------------------------------------------------------------------
+		echo "Finished indexing sam file (read group added) at: `date`"
+		# ---------------------------------------------------------------------
+		echo ""
+
+		#### Mark duplicates #########
+		java -Xms64g -Xmx130g -jar $EBROOTPICARD/picard.jar MarkDuplicates USE_JDK_INFLATER=true USE_JDK_DEFLATER=true \
+		I=/scratch/kchriste/Otsh/gatk/alns/$outfile2 O=/scratch/kchriste/Otsh/gatk/alns/$outfile3 \
+		VALIDATION_STRINGENCY=LENIENT M=/scratch/kchriste/Otsh/gatk/mkdup/${array_file}.duplication_metrics_from_MarkDuplicates.txt
+
+		# ---------------------------------------------------------------------
+		echo "Finished Marking Duplicates at: `date`"
+		# ---------------------------------------------------------------------
+		echo ""
+
+		#### Index sam file #########
+		samtools index /scratch/kchriste/Otsh/gatk/alns/$outfile3
+
+		# ---------------------------------------------------------------------
+		echo "Finished indexing sam file (marked duplicates) at: `date`"
+		# ---------------------------------------------------------------------
+		echo ""
+
+		# ---------------------------------------------------------------------
+		echo "Finished all at: `date`"
+		# ---------------------------------------------------------------------
+		echo ""
+		
+		
+	###For combining the same sample sequenced over multiple lanes
+	        ###Example Script####
+		#!/bin/bash
+		#SBATCH --mail-user=kris.christensen@wsu.edu
+		#SBATCH --mail-type=ALL
+		#SBATCH --time=48:00:00
+		#SBATCH --mem=140000M
+		#SBATCH --account=rrg-bkoop-ad
+		#SBATCH --cpus-per-task=3
+		#SBATCH --job-name=Otsh.MarkDuplicates
+		#SBATCH --output=/scratch/kchriste/Otsh/gatk/output/MarkDuplicates.20May2021.%A.out
+		#SBATCH --error=/scratch/kchriste/Otsh/gatk/output/MarkDuplicates.20May2021.%A.err
+		#SBATCH --dependency=afterok:4200848
+
+		#####################################
+		### Programs Used ###################
+		#####################################
+
+		module load nixpkgs/16.09
+		module load gcc/8.3.0
+		module load bwa/0.7.15
+		module load samtools/1.9
+		module load picard/2.18.9
+
+		java -Xms64g -Xmx130g -jar $EBROOTPICARD/picard.jar MarkDuplicates USE_JDK_INFLATER=true USE_JDK_DEFLATER=true VALIDATION_STRINGENCY=LENIENT I=/scratch/kchriste/Otsh/gatk/alns/HI.4607.001.Index_2.GBC_001_CH1-2011.RG.sorted.bam I=/scratch/kchriste/Otsh/gatk/alns/HI.4607.002.Index_2.GBC_001_CH1-2011.RG.sorted.bam O=/scratch/kchriste/Otsh/gatk/alns/GBC_001_CH1-2011.MD.RG.sorted.bam M=/scratch/kchriste/Otsh/gatk/mkdup/GBC_001_CH1-2011.MD.RG.sorted.Mkdup.txt
+		
+		samtools index /scratch/kchriste/Otsh/gatk/alns/GBC_001_CH1-2011.MD.RG.sorted.bam
+		
+		###End of Example Script####
+	
+		#####################################################################################
+		#####################################################################################
+		Used "samtools view -H" to retrieve header of sorted bam file (after MD and RG).  Then modified the .sam file using 
+		nano to change the library (LB) and sample name (SM) to be the same for the individuals with multiple sequencing lane info.
+		Used picard ReplaceSamHeader to output to a new file with the modified header info.
+		##java -Xms8g -Xmx10g -jar $EBROOTPICARD/picard.jar ReplaceSamHeader \
+		I=Og18002-2.MD.RG.sorted.bam HEADER=Og18002-2.MD.RG.sorted.header.sam O=Og18002-2.HD.MD.RG.sorted.bam
+		##Remove previous
+		##Index new
+		#####################################################################################
+		#####################################################################################
+		
+		Example:
+		[kchriste@cdr767 alns]$ samtools view -H GBC_001_CH1-2011.MD.RG.sorted.bam > GBC_001_CH1-2011.MD.RG.sorted.header.sam
+		[kchriste@cdr767 alns]$ nano GBC_001_CH1-2011.MD.RG.sorted.header.sam
+		###Change the LB to the same + _1, and the SM to the same
+		[kchriste@cdr767 alns]$ java -Xms8g -Xmx10g -jar $EBROOTPICARD/picard.jar ReplaceSamHeader \
+		I=GBC_001_CH1-2011.MD.RG.sorted.bam HEADER=GBC_001_CH1-2011.MD.RG.sorted.header.sam \
+		O=../finAlns/GBC_001_CH1-2011.HD.MD.RG.sorted.bam
+		[kchriste@cdr767 alns]$ samtools index ../finAlns/GBC_001_CH1-2011.HD.MD.RG.sorted.bam
+
+		
+	###Generate dictionary file for the genome
+
+		module load nixpkgs/16.09
+		module load gcc/8.3.0
+		module load bwa/0.7.15
+		module load samtools/1.9
+		module load picard/2.18.9
+		
+		[kchriste@cdr767 genome]$ java -Xms5g -Xmx10g -jar $EBROOTPICARD/picard.jar \
+		CreateSequenceDictionary R=GCA_018296145.1_Otsh_v2.0_genomic_wMito.fna O=GCA_018296145.1_Otsh_v2.0_genomic_wMito.dict
+		
+	###HaplotypeCaller example script
+	
+		#!/bin/bash
+		#SBATCH --mail-user=kris.christensen@wsu.edu
+		#SBATCH --mail-type=ALL
+		#SBATCH --time=48:00:00
+		#SBATCH --mem=192000M
+		#SBATCH --account=rrg-bkoop-ad
+		#SBATCH --cpus-per-task=48
+		#SBATCH --array=1-138%20
+		#SBATCH --job-name=Otsh.Hap.Call
+		#SBATCH --output=/scratch/kchriste/Otsh/gatk/output/Otsh_Hap_Call_%A_%a.out
+		#SBATCH --error=/scratch/kchriste/Otsh/gatk/output/Otsh_Hap_Call_%A_%a.err
+		#SBATCH --tmp=100G
+
+		#####################################
+		### Programs Used ###################
+		#####################################
+
+		module load nixpkgs/16.09
+		module load gatk/3.8
+
+		#####################################
+		### Variables #######################
+		#####################################
+
+		arrayFile=`ls ./finAlns/*.MD.RG.sorted.bam | sed 's/.MD.RG.sorted.bam//g' | sed 's|./finAlns/||g' | awk -v line=$SLURM_ARRAY_TASK_ID '{if(NR==line) print $0}'`
+		arrayFileFull="./finAlns/${arrayFile}.MD.RG.sorted.bam"
+		outFile="./gvcfs/${arrayFile}.g.vcf.gz"
+		reference=`ls /scratch/kchriste/Otsh/gatk/genome/GCA_018296145.1_Otsh_v2.0_genomic_wMito.fna`
+
+		#####################################
+		### Execution of programs ###########
+		#####################################
+
+		# ---------------------------------------------------------------------
+		echo "Current working directory: `pwd`"
+		echo "Starting run at: `date`"
+		echo "SLURM_JOBID: " $SLURM_JOBID
+		echo "SLURM_ARRAY_TASK_ID: " $SLURM_ARRAY_TASK_ID
+		echo "SLURM_ARRAY_JOB_ID: " $SLURM_ARRAY_JOB_ID
+		echo "File Name: " $arrayFileFull
+		# ---------------------------------------------------------------------
+		echo ""
+
+		#### Call genotypes ########
+		java -Xms24g -Xmx190g -Djava.io.tmpdir=$SLURM_TMPDIR -jar $EBROOTGATK/GenomeAnalysisTK.jar \
+		 -T HaplotypeCaller \
+		 -jdk_inflater \
+		 -jdk_deflater \
+		 --genotyping_mode DISCOVERY \
+		 --emitRefConfidence GVCF \
+		 -nct 40 \
+		 -R $reference \
+		 -I $arrayFileFull \
+		 -o $outFile	
+	
+	###Generate windows to call genotypes
+	
+		[kchriste@cedar5 intervals]$ python ../WindowGen.v1.1.py -scaff ../genome/GCA_018296145.1_Otsh_v2.0_genomic_wMito.fna.fai
+	
+	###Generate genotypes:
+	
+		#!/bin/bash
+		#SBATCH --mail-user=kris.christensen@wsu.edu
+		#SBATCH --mail-type=ALL
+		#SBATCH --time=24:00:00
+		#SBATCH --mem=515000M
+		#SBATCH --account=rrg-bkoop-ad
+		#SBATCH --cpus-per-task=32
+		#SBATCH --array=1-230%20
+		#SBATCH --job-name=Otsh.Geno.Call
+		#SBATCH --output=/scratch/kchriste/Otsh/gatk/output/Ogor_Geno_Call_%A_%a.out
+		#SBATCH --error=/scratch/kchriste/Otsh/gatk/output/Ogor_Geno_Call_%A_%a.err
+		#SBATCH --tmp=100G
+
+		#####################################
+		### Programs Used ###################
+		#####################################
+
+		module load nixpkgs/16.09
+		module load gatk/3.8
+
+		#####################################################################################################
+		### Samples and intervals in folder #################################################################
+		#####################################################################################################
+
+		samples=$(find . | sed 's/.\///' | grep -E 'g.vcf.gz$' | sed 's/^/--variant /')
+		intervalFile=`ls intervals | sed 's/.intervals//' | awk -v line=$SLURM_ARRAY_TASK_ID '{if(NR==line) print $0}'`
+		fullIntervalFile="$intervalFile.intervals"
+		mkdir -p vcfFiles
+
+		#####################################################################################################
+		### Execution of program ############################################################################
+		#####################################################################################################
+
+		# ---------------------------------------------------------------------
+		echo "Current working directory: `pwd`"
+		echo "Starting run at: `date`"
+		echo "SLURM_JOBID: " $SLURM_JOBID
+		echo "SLURM_ARRAY_TASK_ID: " $SLURM_ARRAY_TASK_ID
+		echo "SLURM_ARRAY_JOB_ID: " $SLURM_ARRAY_JOB_ID
+		echo "File Name: " $fullIntervalFile
+		# ---------------------------------------------------------------------
+		echo ""
+
+		java -Xms100g -Xmx500g -Djava.io.tmpdir=$SLURM_TMPDIR -jar $EBROOTGATK/GenomeAnalysisTK.jar \
+		   -jdk_inflater \
+		   -jdk_deflater \
+		   -T GenotypeGVCFs \
+		   -R /scratch/kchriste/Otsh/gatk/genome/GCA_018296145.1_Otsh_v2.0_genomic_wMito.fna \
+		   -o ./vcfFiles/Variants.GATK.iteration.1.${intervalFile}.interval.vcf \
+		   -L ./intervals/$fullIntervalFile \
+		   -nt 30 \
+		   $(echo $samples)
+			
+	
+	###Concatenate genotypes:
+
+		#!/bin/bash
+		#SBATCH --time=12:00:00
+		#SBATCH --mem=192000M
+		#SBATCH --account=rrg-bkoop-ad
+		#SBATCH --cpus-per-task=48
+		#SBATCH --job-name=Concatenate
+		#SBATCH --output=./output/Concatenate.1.out
+		#SBATCH --error=./output/Concatenate.1.err
+			
+		#####################################
+		### Programs Used ###################
+		#####################################
+
+		module load nixpkgs/16.09
+		module load gcc/8.3.0
+		module load gatk/3.8
+
+		#####################################################################################################
+		### Samples and intervals in folder #################################################################
+		#####################################################################################################
+
+		intervals=$(find ./vcfFiles | sed 's/.\///' | grep -E '.vcf$' | sed 's/^/-V /')
+		pwd=`pwd`
+		processors=47
+
+		#####################################################################################################
+		### Execution of program ############################################################################
+		#####################################################################################################
+		mkdir -p round1
+
+		# ---------------------------------------------------------------------
+		echo "Current working directory: `pwd`"
+		echo "Starting run at: `date`"
+		echo "SLURM_JOBID: " $SLURM_JOBID
+		# ---------------------------------------------------------------------
+		echo ""
+
+		java -Xms5g -Xmx176g -cp $EBROOTGATK/GenomeAnalysisTK.jar org.broadinstitute.gatk.tools.CatVariants \
+		 -R /scratch/kchriste/Otsh/gatk/genome/GCA_018296145.1_Otsh_v2.0_genomic_wMito.fna \
+		 -out ./round1/variants.GATK.iteration.1.Full.vcf \
+		 $(echo $intervals)
+
+		#####################################
+		### Programs Used ###################
+		#####################################
+		module purge
+		module load StdEnv/2020
+		module load vcftools/0.1.16
+
+		cat ./round1/variants.GATK.iteration.1.Full.vcf | vcf-sort -c -p $processors -t $SLURM_TMPDIR > ./round1/variants.GATK.iteration.1.Full.sorted.vcf
+
+		bgzip -@$processors ./round1/variants.GATK.iteration.1.Full.sorted.vcf
+		tabix -p vcf ./round1/variants.GATK.iteration.1.Full.sorted.vcf.gz	
+	
+	###Recalibrate
+		1) Identify truth data set
+			Brieuc et al. 2014 (~7000 variants) 
+			A Dense Linkage Map for Chinook salmon (Oncorhynchus tshawytscha) Reveals Variable Chromosomal Divergence After an Ancestral Whole Genome Duplication Event
+			File S2 and S3
+			F3 2.6 has the positions, but they look like they are 0-based instead of 1-based
+			Manually created a vcf file so I could use a previous methodology
+			
+			krischristensen@krischristensen-desktop:~/Desktop/Documents/Otsh/GATK/method$ samtools faidx Brieuc_Consensus_AllSequences.fasta
+
+			####BWA mem doesn't handle sequences smaller than 70 bp, so I had to modify the script
+			krischristensen@krischristensen-desktop:~/Desktop/Documents/Otsh/GATK/method$ \
+			python3 ~/Desktop/Documents/General_Scripts/mapSNP2NewGenome/VCF_2_Fasta_v1.1_SpecificProject_OtshTruth.py \
+			-vcf Brieuc_Consensus.vcf -fasta Brieuc_Consensus_AllSequences.fasta \
+			-fai Brieuc_Consensus_AllSequences.fasta.fai -flanking 10 \
+			> Brieuc_Consensus_AllSequences.FlankingSeqs.fasta
+	
+				Opened vcf file
+					Finished reading vcf file: Found 8639 variants, used 8125
+					
+			(base) kchristensen@ccr:/scratch/kchristensen/Otsh/gatk$ bwa mem -M \
+			/scratch2/shared/NCBI.Genomes/GCA_018296145.1_Otsh_v2.0_genomic.fna \
+			Brieuc_Consensus_AllSequences.FlankingSeqs.fasta \
+			| samtools sort -o Otsh.NCBIv2.vs.Brieuc.et.al.2014.bam
+			
+			####BWA mem doesn't handle sequences smaller than 70 bp, so I had to modify the script
+			krischristensen@krischristensen-desktop:~/Desktop/Documents/Otsh/GATK/method$ python3 \
+			~/Desktop/Documents/General_Scripts/mapSNP2NewGenome/Bam2SNPPosition.v1.1_SpecificProject_OtshTruth.py \
+			-file Otsh.NCBIv2.vs.Brieuc.et.al.2014.bam -qual 60 -multiple 1 -minLen 70 -minPid 90 -pos 11 \
+			> Brieuc2Otsh.NCBIv2.positions.custom.txt
+			
+			(base) kchristensen@ccr:/scratch/kchristensen/Otsh/gatk$ python CheckMappingVCF.v1.1.py \
+			-map Brieuc2Otsh.NCBIv2.positions.custom.txt -fasta1 Brieuc_Consensus_AllSequences.FlankingSeqs.fasta \
+			-fai1 Brieuc_Consensus_AllSequences.FlankingSeqs.fasta.fai \
+			-fasta2 /scratch2/shared/NCBI.Genomes/GCA_018296145.1_Otsh_v2.0_genomic.fna \
+			-fai2 /scratch2/shared/NCBI.Genomes/GCA_018296145.1_Otsh_v2.0_genomic.fna.fai \
+			-flanking 10 -output most > Brieuc2Otsh.NCBIv2.positions.custom.QCfiltered.txt
+			
+			Opened map file
+				Finished reading vcf file: Found 6694 variants, correct variants:2072, unknown variants:1169, CompleteMismatch:2787, variantOnlyMismatch:610, partialMatch:56
+				
+			###Manually checked for markers that didn't match linkage group
+			###Had to manually remove part of the name in the Brieuc2Otsh.NCBIv2.positions.custom.QCfiltered.txt file that was added by the VCF_2_Fasta script
+			
+			###Map reads to new vcf file
+			krischristensen@krischristensen-desktop:~/Desktop/Documents/Otsh/GATK/method$ \
+			python3 ~/Desktop/Documents/General_Scripts/mapSNP2NewGenome/Assign_New_SNP_Positions.V1.1.py \
+			-map Brieuc2Otsh.NCBIv2.positions.custom.QCfiltered.txt -vcf Brieuc_Consensus.vcf \
+			-fai GCA_018296145.1_Otsh_v2.0_genomic.fna.fai > Brieuc_NCBI.v2.vcf
+
+			(2645 sites)
+			
+			###Sort vcf file
+			krischristensen@krischristensen-desktop:~/Desktop/Documents/Otsh/GATK/method$ bcftools sort Brieuc_NCBI.v2.vcf > Brieuc_NCBI.v2.sorted.vcf
+			
+			###Index
+			kchristensen@woodstock:/scratch/kchristensen/otsh/gatk2021$ bgzip Brieuc_NCBI.v2.sorted.vcf 
+			
+			kchristensen@woodstock:/scratch/kchristensen/otsh/gatk2021$ tabix Brieuc_NCBI.v2.sorted.vcf.gz 
+
+		2) Find intersection
+		
+			###Find the intersection of the GATK vcf file and the Truth Dataset
+			kchristensen@woodstock:/scratch/kchristensen/otsh/gatk2021$ \
+			vcf-isec -n =2 -f variants.GATK.iteration.1.Full.sorted.vcf.gz Brieuc_NCBI.v2.sorted.vcf.gz \
+			| bgzip -c > Brieuc_NCBI.v2.vs.GATK.1.vcf.gz
+			
+				###Warning: the number of sample columns is different
+				(2316 Sites)
+				
+		3) Generate hard filtered training set
+		
+			kchristensen@woodstock:/scratch/kchristensen/otsh/Schluter/vcf$ \
+			java -Xms5g -Xmx176g \
+			-jar /scratch/shared/GATK/GenomeAnalysisTK-3.8-0-ge9d806836/GenomeAnalysisTK.jar \
+			-T VariantFiltration \
+			-R GCA_018296145.1_Otsh_v2.0_genomic_wMito.fna \
+			-V variants.GATK.iteration.1.Full.sorted.vcf.gz \
+			--filterExpression "QD < 2.0 || FS > 60.0 || SOR > 3.0 || MQRankSum < -12.5 || ReadPosRankSum < -8.0" \
+			--filterName "my_snp_filter" -o variants.GATK.iteration.1.Full.sorted.hard-filtered.vcf
+		
+		4) Generate recalibration files
+	
+			kchristensen@woodstock:/scratch/kchristensen/otsh/Schluter/vcf$ \
+			java -Xms5g -Xmx176g \
+			-jar /scratch/shared/GATK/GenomeAnalysisTK-3.8-0-ge9d806836/GenomeAnalysisTK.jar \
+			-T VariantRecalibrator \
+			-R ../genome/GCA_018296145.1_Otsh_v2.0_genomic_wMito.fna \
+			-input variants.GATK.iteration.1.Full.sorted.vcf.gz \
+			-recalFile variants.GATK.SORgt3.recal \
+			-tranchesFile variants.GATK.SORgt3.tranches \
+			-rscriptFile variants.GATK.SORgt3.R \
+			-resource:Brieuc,known=false,training=true,truth=true,prior=15.0 Brieuc_NCBI.v2.vs.GATK.1.vcf.gz \
+			-resource:Training,known=false,training=true,truth=false,prior=12.0 variants.GATK.iteration.1.Full.sorted.hard-filtered.SORgt3.0.vcf.gz \
+			-an QD -an MQ -an MQRankSum -an ReadPosRankSum -an FS -an SOR -an DP -an InbreedingCoeff -mode SNP
+			
+		5) Recalibrate
+		
+			kchristensen@woodstock:/scratch/kchristensen/otsh/Schluter/vcf$ \
+			java -Xms5g -Xmx176g \
+			-jar /scratch/shared/GATK/GenomeAnalysisTK-3.8-0-ge9d806836/GenomeAnalysisTK.jar \
+			-T ApplyRecalibration \
+			-R ../genome/GCA_018296145.1_Otsh_v2.0_genomic_wMito.fna \
+			-input variants.GATK.iteration.1.Full.sorted.vcf.gz -recalFile variants.GATK.SORgt3.recal \
+			-tranchesFile variants.GATK.SORgt3.tranches \
+			-mode SNP \
+			-o variants.GATK.iteration.1.Full.sorted.SORgt3.recalibrated.filtered.1.vcf \
+			--ts_filter_level 99.5
+			
+		6) First filter
+		
+			kchristensen@woodstock:/scratch/kchristensen/otsh/Schluter/vcf$ \
+			vcftools \
+			--vcf variants.GATK.iteration.1.Full.sorted.SORgt3.recalibrated.filtered.1.vcf \
+			--remove-indels \
+			--recode \
+			--recode-INFO-all \
+			--remove-filtered-all \
+			--min-alleles 2 \
+			--max-alleles 2 \
+			--max-missing 0.9 \
+			--maf 0.05 \
+			--min-meanDP 5 \
+			--max-meanDP 200 \
+			--out FirstFilter.GATK.gt3.vcftools.biallele.mm0.9.maf0.05.meanDP5-200
+			
+			
+				VCFtools - 0.1.15
+				(C) Adam Auton and Anthony Marcketta 2009
+
+				Parameters as interpreted:
+					--vcf variants.GATK.iteration.1.Full.sorted.SORgt3.recalibrated.filtered.1.vcf
+					--recode-INFO-all
+					--maf 0.05
+					--max-alleles 2
+					--max-meanDP 200
+					--min-alleles 2
+					--min-meanDP 5
+					--max-missing 0.9
+					--out FirstFilter.GATK.gt3.vcftools.biallele.mm0.9.maf0.05.meanDP5-200
+					--recode
+					--remove-filtered-all
+					--remove-indels
+
+				After filtering, kept 138 out of 138 Individuals
+				Outputting VCF file...
+				After filtering, kept 8055508 out of a possible 58307150 Sites
+				Run Time = 3536.00 seconds
+				
+
