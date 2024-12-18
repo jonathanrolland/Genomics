@@ -7,15 +7,15 @@ This includes the pipeline to go from the raw fastq files "XXX_R1.fastq.gz" and 
 00.script.K.Christensen.pipeline.txt describes the pipeline to align and filter the reads and generate the vcf file FirstFilter.GATK.gt3.vcftools.biallele.mm0.9.maf0.05.meanDP5-200 used for further analyses.
 Using the reference genome here: https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/018/296/145/GCF_018296145.1_Otsh_v2.0/GCF_018296145.1_Otsh_v2.0_genomic.gff.gz
 
-01.script.make.snp.matrices.and.run.bglmer.r explains how to make SNP matrices from the vcf and run the BGLMER analysis
+01.script.make.snp.matrices.and.run.bglmer.r explains how to make SNP matrices from the vcf and run the BGLMER analysis.
 
-02.script.PCA.and.figures.r explains how to run PCA analyses and produce the figures
+02.script.PCA.and.figures.r explains how to run PCA analyses and produce the figures.
 
-03.script.admixture.analysis.r explains how to run the ADMIXTURE analyses 
+03.script.admixture.analysis.r explains how to run the ADMIXTURE analyses.
 
-04.script.BAYPASS.r describes how to run the BAYPASS analyses 
+04.script.BAYPASS.r describes how to run the BAYPASS analyses.
 
-05.simplify.gff.r produces a simplified gff to merge information from the gff and the BAYPASS/BGLMER analyses
+05.simplify.gff.r produces a simplified gff to merge information from the gff and the BAYPASS/BGLMER analyses.
 
 06.script.compute.mean.results.per.gene.and.sliding.window.r compute the mean -log10pvalue and Bayes Factor per gene and per sliding window of 50 SNP.
 
