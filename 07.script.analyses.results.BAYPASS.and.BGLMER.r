@@ -1,6 +1,6 @@
 
 ####### MAIN RESULTS
-# See if candidates genes are ranking in the top 5% of the regions (mean pvalue or sliding window 50snp)
+# See if candidates genes are ranking in the top 5% of the regions (mean value per gene or sliding window 50snp)
 # With mean -log10() pvalues from bglmer 
 # and mean Bayes factor (BF) from Baypass
 
