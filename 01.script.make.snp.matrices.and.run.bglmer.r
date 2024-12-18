@@ -14,7 +14,7 @@ bgzip FirstFilter.GATK.gt3.vcftools.biallele.mm0.9.maf0.05.meanDP5-200.recode.no
 #FirstFilter.GATK.gt3.vcftools.biallele.mm0.9.maf0.05.meanDP5-200.recode.noYY.vcf.recode.vcf.gz
 #GCA_018296145.1_Otsh_v2.0_genomic_wMito.gff
 
-gzip -cd ~/Dropbox/1.en_cours/SticklebacksSalmons/121_chinook.v3/0.Kris_vcf_file_version3/FirstFilter.GATK.gt3.vcftools.biallele.mm0.9.maf0.05.meanDP5-200.recode.noYY.vcf.recode.vcf.gz | grep contig
+gzip -cd FirstFilter.GATK.gt3.vcftools.biallele.mm0.9.maf0.05.meanDP5-200.recode.noYY.vcf.recode.vcf.gz | grep contig
 
 # We extract the interesting part
 # chr 1 -34 go from CM031199.1 to CM031232.1
