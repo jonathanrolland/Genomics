@@ -1,0 +1,154 @@
+alaska<-read.table("File S2 - alaska.txt",sep=";",h=T)
+table(alaska[alaska$year==2024,]$count_location)
+#10 rivers sampled in 2024, data from alaska department of fisheries https://www.adfg.alaska.gov/sf/FishCounts/index.cfm?ADFG=main.displayResults
+#Anchor River, Ayakulik River, Deshka, Gulkana River, Kenai River, Lake Creek, Little Susitna, Nelson River, Ninilchik River, Nushagak River
+
+alaska2024<-alaska[alaska$year==2024,]
+
+day<-rep(NA,705)
+month<-rep(NA,705)
+year<-rep(NA,705)
+
+duration<-rep(NA,705)
+
+for(i in 1:705){
+#Reorganize dates
+day[i]<-sapply(alaska2024$count_date[i],function(x)strsplit(x,split="/")[[1]][2])
+month[i]<-sapply(alaska2024$count_date[i],function(x)strsplit(x,split="/")[[1]][1])
+year[i]<-sapply(alaska2024$count_date[i],function(x)strsplit(x,split="/")[[1]][3])
+
+#Define the reference at the 1st of January
+date_1<-as.Date("2024-01-01")
+date_2<-as.Date(as.character(paste(year[i],"-",month[i],"-",day[i],sep="")))
+print(date_2)
+a = seq(from = date_1, to = date_2, by = 'day')
+#compute the number of days
+duration[i]<-length(a)
+print(length(a))
+}
+
+#sum for all the days
+count<-rep(NA,length(unique(sort(duration))) )
+for( i in 1:length(unique(sort(duration))) ){
+ii<- unique(sort(duration))[i]
+count[i]<-sum(alaska2024$fish_count[which(duration==ii)],na.rm=T)
+}
+
+alaska_plot<-unique(sort(duration))
+alaska_count<-count
+plot(unique(sort(duration)), count ,ylab="Nb. of fish",xlab="Nb. of days",main="",pch=19)
+ 
+#For all rivers combined (67,404 salmon total) it seems that there is just one run,  it starts the 10/05/2024 and ends the 30/08/2024, with a peak in end-June/early-July.
+
+###################
+# Columbia
+
+columbia2024<-read.csv2("File S3 - adultdaily_1741119176_797-bonneville-columbia-2024.csv",sep=",",h=T)
+columbia2024<-columbia2024[,-c(367:388)]# remove empty lines
+
+#at bonneville 
+# Data obtained at https://www.cbr.washington.edu/
+
+day<-rep(NA,366)
+month<-rep(NA,366)
+year<-rep(NA,366)
+
+# sama as above, define reference and count days
+duration<-rep(NA,366)
+for(i in 1:366){
+day[i]<-sapply(columbia2024$Date[i],function(x)strsplit(x,split="-")[[1]][3])
+month[i]<-sapply(columbia2024$Date[i],function(x)strsplit(x,split="-")[[1]][2])
+year[i]<-sapply(columbia2024$Date[i],function(x)strsplit(x,split="-")[[1]][1])
+
+date_1<-as.Date("2024-01-01")
+date_2<-as.Date(as.character(paste(year[i],"-",month[i],"-",day[i],sep="")))
+a = seq(from = date_1, to = date_2, by = 'day')
+duration[i]<-length(a)
+}
+
+count<-rep(NA,length(unique(sort(duration))) )
+
+for( i in 1:length(unique(sort(duration))) ){
+ii <- unique(sort(duration))[i]
+count[i]<-sum(columbia2024$Chin[which(duration==ii)],na.rm=T)
+}
+
+columbia_plot<-unique(sort(duration))
+columbia_count<-count
+plot(unique(sort(duration)), count ,ylab="Nb. of fish",xlab="Nb. of days",main="",pch=19)
+ 
+#####################
+# Samples from Thompson et al. 2020
+# The dates were obtained from Anthony Clemento and Eric Anderson.
+
+rt<-read.csv2("File S5 - wgs-chinook-samples-dates_clean.csv")[-c(161:163),]
+
+spring_by_days<-rep(NA,380)
+fall_by_days<-rep(NA,380)
+latefall_by_days<-rep(NA,380)
+winter_by_days<-rep(NA,380)
+
+for(i in 1:380){
+spring_by_days[i]<-sum(which(rt$nb_days==i)%in%which(rt$run_type=="Spring"))
+fall_by_days[i]<-sum(which(rt$nb_days==i)%in%which(rt$run_type=="Fall"))
+latefall_by_days[i]<-sum(which(rt$nb_days==i)%in%which(rt$run_type=="Late Fall"))
+winter_by_days[i]<-sum(which(rt$nb_days==i)%in%which(rt$run_type=="Winter"))
+}
+
+spring_by_days[which(spring_by_days==0)]<-NA
+fall_by_days[which(fall_by_days==0)]<-NA
+latefall_by_days[which(latefall_by_days==0)]<-NA
+winter_by_days[which(winter_by_days==0)]<-NA
+
+#January 13 can be translanted into day 365+13=378 for more clarity in the graph
+latefall_by_days[which(latefall_by_days>0)]<-0
+latefall_by_days[378]<-16
+
+#########
+# Figure S1 
+
+alaska_plot2<-c(100:130,alaska_plot,244:380)
+alaska_count2<-c(rep(0,length(100:130)),alaska_count,rep(0,length(244:380)))
+
+columbia_plot2<-c(columbia_plot[-c(1:99)],367:380)
+columbia_count2<-c(columbia_count[-c(1:99)],rep(0,length(367:380)))
+
+spring_by_days2<-spring_by_days[-c(1:99)]
+fall_by_days2<-fall_by_days[-c(1:99)]
+latefall_by_days2<-latefall_by_days[-c(1:99)]
+winter_by_days2<-winter_by_days[-c(1:99)]
+
+#Plot with colours
+#par(mfrow=c(3,1))
+#plot(alaska_plot2, alaska_count2 ,ylab="Nb. of fish",xlab="Nb. of days",main="",pch=19,xlim=c(100,380))
+#abline(v=365)
+#plot(columbia_plot2, columbia_count2 ,ylab="Nb. of fish",xlab="Nb. of days",main="",pch=19,xlim=c(100,380))
+#abline(v=365)
+
+#choose to start at day 100 for clarity 
+#plot(100:380,winter_by_days2,col="blue",xlim=c(100,380),ylim=c(0,17),pch=19,ylab="Nb. of samples", xlab="Nb. of days")
+#par(new=T)
+#plot(100:380,spring_by_days2,col="green",xlim=c(100,380),ylim=c(0,17),pch=19,ylab="Nb. of samples", xlab="Nb. of days")
+#par(new=T)
+#plot(100:380,fall_by_days2,col="red",xlim=c(100,380),ylim=c(0,17),pch=19,ylab="Nb. of samples", xlab="Nb. of days")
+#par(new=T)
+#plot(100:380,latefall_by_days2,col="dark red",xlim=c(100,380),ylim=c(0,17),pch=19,ylab="Nb. of samples", xlab="Nb. of days")
+#abline(v=365)
+
+# Final plot without colours
+mat_count_cal<-rbind(winter_by_days2,spring_by_days2,fall_by_days2,latefall_by_days2)
+sum_mat<-apply(mat_count_cal,2,function(x)sum(x,na.rm=T))
+
+par(mfrow=c(3,1))
+plot(alaska_plot2, alaska_count2 ,ylab="Nb. of fish",xlab="Nb. of days",main="",pch=19,xlim=c(100,380))
+abline(v=365)
+plot(columbia_plot2, columbia_count2 ,ylab="Nb. of fish",xlab="Nb. of days",main="",pch=19,xlim=c(100,380))
+abline(v=365)
+
+plot(c(100:380)[-which(sum_mat==0)],sum_mat[-which(sum_mat==0)],col="black",xlim=c(100,380),ylim=c(0,17),pch=19,ylab="Nb. of samples", xlab="Nb. of days")
+ss<-smooth.spline(c(100:380)[-which(sum_mat==0)],sum_mat[-which(sum_mat==0)],df=8)
+par(new=T)
+plot(ss$x,ss$y,col="black",xlim=c(100,380),ylim=c(0,17),type="l",ylab="Nb. of samples", xlab="Nb. of days")
+abline(v=365)
+
+
