@@ -25,3 +25,4 @@ Using the reference genome here: https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/01
 
 09.Comparison.ALASKA.and.CALIFORNIA.after.liftover.txt describes how to merge datasets and run analyses in order to analyse the spring-run alleles (using california samples from Thompson et al.) across the latitudinal gradient.
 
+10.script timing run alaska.txt analyses the data from different fish counts in order to assess what are the main dates of chinook run in Alaska, Washington state and California.
