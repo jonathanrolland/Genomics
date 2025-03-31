@@ -1,0 +1,63 @@
+#####             #####
+### LIFTOVER SCRIPT ###
+#####             ##### 
+#From Maëva Gabrielli - March 21, 2025
+
+##### 1 - Align the two reference genomes (to be found in NCBI) with nucmer #####
+
+V1=GCF_002872995.1_Otsh_v1.0_genomic.fna
+V2=GCA_018296145.1_Otsh_v2.0_genomic.fna
+
+~/Documents/maeva/bin/mummer-4.0.1/nucmer -c 100 -p nucmerV1_V2 $V1 $V2
+
+##### 2 - convert nucmer output (delta) to a chain file #####
+
+### delta to maf
+~/Documents/maeva/bin/MUMmer3.20/src/tigr/delta2maf nucmerV1_V2.delta
+
+### maf to chain
+#wget https://gitlab.com/mcfrith/last/-/raw/main/bin/maf-convert?ref_type=heads
+
+# runs on python3
+python3 maf-convert.py chain nucmerV1_V2.maf >nucmerV1_V2.chain
+
+##### 3 - Perform the liftover of the vcf using the chain file #####
+
+~/Documents/maeva/bin/transanno-0.4.5/target/debug/transanno liftvcf --original-assembly ../GCF_002872995.1_Otsh_v1.0_genomic.fna --new-assembly ../GCA_018296145.1_Otsh_v2.0_genomic.fna --chain ../nucmerV1_V2.chain --vcf datathompson/Cal-Chinook-160.vcf.gz --output Cal-Chinook-160_V2.vcf --fail errors
+
+##### 4 - merge the vcf after liftover and filter the new vcf #####
+
+### first, prepare vcf from Thompson et al.
+#remove sites for which REF was changed as it forbids merging with OTSH_V2
+cat Cal-Chinook-160_V2.vcf |grep -v "REF_CHANGED" >Cal-Chinook-160_V2_NO-REF-CHANGED.vcf
+
+# sort the vcf
+~/Documents/maeva/bin/bcftools-1.20/bcftools sort Cal-Chinook-160_V2_NO-REF-CHANGED.vcf -o Cal-Chinook-160_V2_sorted.vcf
+
+#bgzip the vcf
+bgzip -f Cal-Chinook-160_V2_sorted.vcf
+
+vcf1=Cal-Chinook-160_V2_sorted.vcf.gz
+vcf2=FirstFilter.GATK.gt3.vcftools.biallele.mm0.9.maf0.05.meanDP5-200.recode.noYY.vcf.recode.vcf.gz
+
+### index all vcf
+tabix -f -p vcf $vcf1
+tabix -f -p vcf $vcf2
+
+### merge the vcf of thompson with coordinates lifted to V2 to our vcf
+ls $vcf2 >vcf_all.list
+ls $vcf1 >>vcf_all.list
+~/Documents/maeva/bin/bcftools-1.20/bcftools merge -m all -l vcf_all.list -o salmons.biallele.mm0.9.maf0.05.meanDP5-200.recode.noYY.thompson.vcf.gz -O z --threads 20
+
+### filter the merged vcf
+/usr/local/bin/vcftools \
+                  --gzvcf salmons.biallele.mm0.9.maf0.05.meanDP5-200.recode.noYY.thompson.vcf.gz \
+                  --remove-indels \
+                  --recode \
+                  --recode-INFO-all \
+                  --remove-filtered-all \
+                  --min-alleles 2 \
+                  --max-alleles 2 \
+                  --max-missing 0.7 \
+                  --stdout | bgzip -c >salmons.biallele.mm0.9.maf0.05.meanDP5-200.recode.noYY.thompson.filtered.vcf.gz
+

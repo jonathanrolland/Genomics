@@ -1,0 +1,496 @@
+# This analysis uses the full vcf of our analyses merged with Thompso's vcf using the liftover procedure
+# It cuts the vcfs in the subparts of the candidate regions and analyse the frequency of spring and fall-run alleles regarding to latitude
+
+# In the terminal: 
+#index liftover file
+tabix  salmons.biallele.mm0.9.maf0.05.meanDP5-200.recode.noYY.thompson.filtered.vcf.gz
+
+#Cut the subpart corresponding to the position of the candidate genes
+# Cut the vcf in the 4 regions
+##clock1a # 0 variant
+##clock1b #178 variants
+##GREB1L/ROCK1 #461 variants 
+##VGLL3 # 109 variants 
+##SIX6 # 0 variant
+
+bcftools view -r CM031203.1:65574213-65642249 salmons.biallele.mm0.9.maf0.05.meanDP5-200.recode.noYY.thompson.filtered.vcf.gz > clock1a.ann.vcf
+bcftools view -r CM031199.1:30337921-30419389 salmons.biallele.mm0.9.maf0.05.meanDP5-200.recode.noYY.thompson.filtered.vcf.gz > clock1b.ann.vcf
+bcftools view -r CM031226.1:13415735-13619775 salmons.biallele.mm0.9.maf0.05.meanDP5-200.recode.noYY.thompson.filtered.vcf.gz > greb1lrock1.ann.vcf
+bcftools view -r CM031201.1:57876958-57939896 salmons.biallele.mm0.9.maf0.05.meanDP5-200.recode.noYY.thompson.filtered.vcf.gz > vgll3.ann.vcf
+bcftools view -r CM031209.1:30434666-30489762 salmons.biallele.mm0.9.maf0.05.meanDP5-200.recode.noYY.thompson.filtered.vcf.gz > six6.ann.vcf
+
+#load the new vcf in R
+library("vcfR")
+library(data.table)
+library(blme)
+
+# Given that we did not find any SNPs with absolute difference of frequency between spring and fall-run in the other genes, we only focus on the GREB1L/ROCK1 region (gene=2) here.
+
+gene=3 # 2 corresponds to clock1b, 3 greb1L and 4 to VGLL3
+
+if(gene==1) vcft<-read.vcfR("clock1a.ann.vcf")
+if(gene==2) vcft<-read.vcfR("clock1b.ann.vcf")
+if(gene==3) vcft<-read.vcfR("greb1lrock1.ann.vcf")
+if(gene==4) vcft<-read.vcfR("vgll3.ann.vcf")
+if(gene==5) vcft<-read.vcfR("six6.ann.vcf")
+
+##   We have 297 individuals in total in 39 populations
+names_indiv<-colnames(vcft@gt)[-1]
+
+#load the info from Thompson
+indiv_thompson<-read.table("wgs-chinook-samples_clean.csv",h=T,sep=",")
+
+#this adds 160 individuals
+sum(indiv_thompson$vcf_name%in%names_indiv)
+      
+#We want to assign the latitude of the mouth of the river for all new individual of Thompson data
+latitude<-rep(NA,160)
+for(i in 1:160){
+if(indiv_thompson$Population[i]== "Butte Creek Spring" ) latitude[i] <- 37.8074 # San Francisco bay 
+if(indiv_thompson$Population[i]== "Coleman Hatchery Late Fall" ) latitude[i] <- 37.8074 #  San Francisco bay 
+if(indiv_thompson$Population[i]== "Feather River Hatchery Fall" ) latitude[i] <- 37.8074 #  San Francisco bay 
+if(indiv_thompson$Population[i]== "Feather River Hatchery Spring" ) latitude[i] <- 37.8074 # San Francisco bay 
+if(indiv_thompson$Population[i]== "Sacramento River Winter" ) latitude[i] <- 37.8074 #  San Francisco bay 
+if(indiv_thompson$Population[i]== "Salmon River Fall" ) latitude[i] <-  41.5433 # Klamath estuary
+if(indiv_thompson$Population[i]== "Salmon River Spring" ) latitude[i] <-  41.5433 # Klamath estuary
+if(indiv_thompson$Population[i]== "San Joaquin River Fall" ) latitude[i]  <- 37.8074 #  San Francisco bay 
+if(indiv_thompson$Population[i]== "Trinity River Hatchery Fall" ) latitude[i]  <- 41.5433 #Klamath estuary
+if(indiv_thompson$Population[i]== "Trinity River Hatchery Spring" ) latitude[i]  <- 41.5433 #Klamath estuary
+}
+
+#create a river variable
+river<-rep(NA,160)
+for(i in 1:160){
+if(indiv_thompson$Population[i]== "Butte Creek Spring" ) river[i] <- "Butte_Creek"
+if(indiv_thompson$Population[i]== "Coleman Hatchery Late Fall" ) river[i] <- "Battle_Creek_Sacramento"
+if(indiv_thompson$Population[i]== "Feather River Hatchery Fall" ) river[i] <- "Feather_River"
+if(indiv_thompson$Population[i]== "Feather River Hatchery Spring" ) river[i] <- "Feather_River"
+if(indiv_thompson$Population[i]== "Sacramento River Winter" ) river[i] <- "Battle_Creek_Sacramento"
+if(indiv_thompson$Population[i]== "Salmon River Fall" ) river[i] <-  "Salmon_River_CA"
+if(indiv_thompson$Population[i]== "Salmon River Spring" ) river[i] <-  "Salmon_River_CA"
+if(indiv_thompson$Population[i]== "San Joaquin River Fall" ) river[i]  <- "San_Joaquin_River"
+if(indiv_thompson$Population[i]== "Trinity River Hatchery Fall" ) river [i]  <- "Trinity_River"
+if(indiv_thompson$Population[i]== "Trinity River Hatchery Spring" ) river [i]  <- "Trinity_River"
+}
+
+data_thompson<-cbind(indiv_thompson$vcf_name,river,latitude,indiv_thompson$run_type,indiv_thompson$Population)
+
+###############################################
+# generate a SNP matrix
+
+library(data.table)
+library(VariantAnnotation)
+library(vcfR)
+library(vroom)
+
+    vcf<-vcft
+    snpmatrix <- extract.gt(vcf, element = 'GT')
+    snpmatrix[which(snpmatrix == "1/1", arr.ind = TRUE)]<-2
+ 	snpmatrix[which(snpmatrix == "0/1", arr.ind = TRUE)]<-1
+ 	snpmatrix[which(snpmatrix == "1/0", arr.ind = TRUE)]<-1
+ 	snpmatrix[which(snpmatrix == "0/0", arr.ind = TRUE)]<-0
+ 	snpmatrix[which(is.na(snpmatrix), arr.ind = TRUE)]<-"NA"
+
+    #keep only the SNP with QUAL>=20
+    print(dim(snpmatrix))
+    snpmatrix <- snpmatrix[which(as.numeric(vcf@fix[,6])>=20),] # all are ok
+    print(dim(snpmatrix))
+
+if(gene==2)fwrite(cbind(rownames(snpmatrix),snpmatrix),file=paste0("snpmatrix_chinook_thompson_clock1b.csv"),sep = ",")
+if(gene==3)fwrite(cbind(rownames(snpmatrix),snpmatrix),file=paste0("snpmatrix_chinook_thompson_rock1_greb1l.csv"),sep = ",")
+if(gene==4)fwrite(cbind(rownames(snpmatrix),snpmatrix),file=paste0("snpmatrix_chinook_thompson_vgll3.csv"),sep = ",")
+
+##############################
+# COMPUTE FREQUENCIES
+##############################
+# Compute allele frequencies for each population
+
+path<-"YOUR PATH"
+path_output<-"YOUR PATH"
+setwd(path)
+
+library(data.table)
+library(dplyr)
+
+#load latitude data and merge the two datasets
+sampData <- read.csv("latitude_samples.csv", sep=";")
+sampData <-cbind(sampData$fishname,sampData$river, sampData$latitude,sampData$run,sampData$river)
+colnames(sampData)<-c("fishname","river","latitude","run","river_run") # river_run is a variable that allows to keep the run within the river separated, finally we won't merge the river between dataset because we do not know if the salmon came frome the same populations # this lead to 39 populations
+
+sampData<-rbind(sampData,data_thompson)
+sampData<-as.data.frame(sampData)
+
+if(gene==1) snpmat<-data.frame(fread(file=paste0("snpmatrix_chinook_thompson_clock1a.csv"),sep=","))
+if(gene==2) snpmat<-data.frame(fread(file=paste0("snpmatrix_chinook_thompson_clock1b.csv"),sep=","))
+if(gene==3) snpmat<-data.frame(fread(file=paste0("snpmatrix_chinook_thompson_rock1_greb1l.csv"),sep=","))
+if(gene==4) snpmat<-data.frame(fread(file=paste0("snpmatrix_chinook_thompson_vgll3.csv"),sep=","))
+if(gene==5) snpmat<-data.frame(fread(file=paste0("snpmatrix_chinook_thompson_six6.csv"),sep=","))
+
+rownames(snpmat)<-snpmat[,1]
+snpmat<-snpmat[,-1]
+
+#transpose in order to have samples in the first column
+snpmat<-t(snpmat)
+
+fishNamesGeno <- sub(".*([O][t].*)", "\\1", rownames(snpmat))
+
+# Check that samples are in the same order in the snpmat the sampData file
+rownames(sampData)<-sampData$fishname
+sampData<-sampData[fishNamesGeno,]
+all(fishNamesGeno == sampData$fishname)
+
+riverLatitude <- paste(sampData$river, sampData$latitude, sep = "|")
+
+# Split genotype data frame by river_run
+list_snpmat <- split(data.table(snpmat), sampData$river_run)
+
+# Total number of alleles by river summed across fish (multiplied the genotypes by 2 to get total alleles)
+totAlleles <- lapply(list_snpmat, function(x){ totAlleles <- apply(x, 2, function(x){2 * length(x[!is.na(x)])}) })
+
+#paste all table together and write
+totAllelesByRiver <- data.frame(do.call("rbind", totAlleles))
+if(gene==2)fwrite(totAllelesByRiver, file = paste0(path_output,"CLOCK1B.totAllelesByRiver.csv"), sep = ",", col.names = TRUE, row.names = TRUE)
+if(gene==3)fwrite(totAllelesByRiver, file = paste0(path_output,"GREB1L.totAllelesByRiver.csv"), sep = ",", col.names = TRUE, row.names = TRUE)
+if(gene==4)fwrite(totAllelesByRiver, file = paste0(path_output,"VGLL3.totAllelesByRiver.csv"), sep = ",", col.names = TRUE, row.names = TRUE)
+
+# Sum of ALT alleles by river, summed across fish (divide by totAllelesByRiver to get allele frequencies)
+nALTalleles <- lapply(list_snpmat, function(x){ nALTalleles <- apply(x, 2, sum, na.rm = TRUE)})
+
+#paste all table together and write
+nALTallelesByRiver <- data.frame(do.call("rbind", nALTalleles))
+
+# Save table depending on the gene
+if(gene==2)fwrite(nALTallelesByRiver, file = paste0(path_output,"CLOCK1B.nALTallelesByRiver.csv"), sep = ",", col.names = TRUE, row.names = TRUE)
+if(gene==3)fwrite(nALTallelesByRiver, file = paste0(path_output,"GREB1L.nALTallelesByRiver.csv"), sep = ",", col.names = TRUE, row.names = TRUE)
+if(gene==4)fwrite(nALTallelesByRiver, file = paste0(path_output,"VGLL3.nALTallelesByRiver.csv"), sep = ",", col.names = TRUE, row.names = TRUE)
+
+######################
+#Difference of Frequencies in the GREB1L-intergenic-ROCK1 across latitude
+
+gene=3
+# Read nREF and nALT
+if(gene==3) nalt_init <- as.data.frame(fread(paste0(path_output,"GREB1L.nALTallelesByRiver.csv")))
+
+# 461  positions are remaining
+names<-nalt_init[,1]
+#check that there are no other position from a chromosom other than 28
+nalt<-nalt_init[,-grep(colnames(nalt_init),pattern="CM031226",invert=T)]
+row.names(nalt) <- names
+
+if(gene==3) ntot_init  <- as.data.frame(fread(paste0(path_output,"GREB1L.totAllelesByRiver.csv")))
+
+# 461  positions are remaining
+names<-ntot_init[,1]
+#check that there are no other position from a chromosom other than 28
+ntot<-ntot_init[,-grep(colnames(ntot_init),pattern="CM031226",invert=T)]
+row.names(ntot) <- names
+
+nref <- ntot - nalt
+
+river_init <- rownames(nalt)
+
+cal_fall<- grep(rownames(ntot),pattern="Fall") #this gets the fall and late fall populations from Thompson
+cal_spring<- grep(rownames(ntot),pattern="Spring") #this gets the spring populations from Thompson
+alaska<- grep(rownames(ntot),pattern="Campbell_Creek") #this gets the spring populations from Thompson
+
+freq<-nalt/ntot
+
+nalt_sum_fall<-apply(nalt[cal_fall,],2,function(x)sum(x,na.rm=T))
+ntot_sum_fall<-apply(ntot[cal_fall,],2,function(x)sum(x,na.rm=T))
+nalt_sum_spring<-apply(nalt[cal_spring,],2,function(x)sum(x,na.rm=T))
+ntot_sum_spring<-apply(ntot[cal_spring,],2,function(x)sum(x,na.rm=T))
+
+#compute the frequency of ALT alleles in fall, spring and winter population
+freq_fall<-nalt_sum_fall/ntot_sum_fall
+freq_spring<-nalt_sum_spring/ntot_sum_spring
+freq_alaska<-freq[alaska,]
+
+#get the positions from the colnames
+positions<-as.numeric(sapply(colnames(freq),function(x)strsplit(x,split="_")[[1]][2]))
+
+#########
+# Show what are the SNPs with absolute allele difference >0.95 between fall and spring run and their association to latitude 
+
+# All positions greb1L, Rock1, intergenic region: 461
+# How many are falling in the intergenic region: 96
+
+# Delete the positions outside of the region
+to_delete<- c(which(positions< 13496979),which(positions>13548901))
+length(positions[-to_delete])
+
+# Out of these 461 SNPs, 76 SNPs have also allele frequency difference >0.95 between spring and fall run 
+length(which(abs(freq_fall-freq_spring)>0.95))
+
+
+#76 positions with abs diff >0.95 between fall and spring in GREB1L, ROCK1 and intergenic region
+positions[which(abs(freq_fall-freq_spring)>0.95)]
+positions_diff95<-c(13447994, 13450354, 13450769, 13452425, 13452837, 13454375, 13455146, 13457880, 13460711, 13461886, 13461891, 13461946, 13461994, 13462432, 13462437,
+13464173, 13464209, 13464606, 13465098, 13465993, 13466238, 13466273, 13466282, 13466979, 13484462, 13484497, 13484558, 13484837, 13494247, 13514226,
+13514260, 13514261, 13514265, 13514384, 13523661, 13523700, 13523937, 13523959, 13524140, 13524655, 13524663, 13525677, 13526155, 13526162, 13532861,
+ 13533287, 13536781, 13538013, 13538626, 13538773, 13538829, 13540267, 13540719, 13540751, 13540785, 13540848, 13543225, 13543542, 13547766, 13548886,
+13552031, 13552909, 13554482, 13583902, 13583905, 13587739, 13588237, 13589255, 13589298, 13589565, 13589767, 13589792, 13589917, 13590016, 13590641,
+ 13590901)
+
+#in the intergenic region
+positions_inter<-positions[-to_delete]
+freq_fall_inter<-freq_fall[-to_delete]
+freq_spring_inter<-freq_spring[-to_delete]
+
+#31 positions with abs diff >0.95 between fall and spring in the intergenic region GREB1L/ROCK1
+positions_intergenic_diff95<-positions_inter[which(abs(freq_fall_inter-freq_spring_inter)>0.95)]
+#c(13514226,13514260,13514261,13514265,13514384,13523661,13523700,13523937,13523959,13524140,13524655,13524663,13525677,13526155,13526162,13532861,13533287,13536781,13538013,13538626,13538773,13538829,13540267,13540719,13540751,13540785,13540848,13543225,13543542,13547766,13548886)
+
+#Get the results from baypass (found 461 SNPs in common with the positions of the liftover)
+results_bf <- data.frame(fread(paste0("~/Dropbox/1.en_cours/SticklebacksSalmons/121_chinook.v3/Baypass_analysis/all_chr_baypass.csv"), sep = ","))
+chr28_bf<-results_bf[which(results_bf$chr=="CM031226.1"),]
+bf_toplot<-chr28_bf$bf[which(chr28_bf$position%in%positions)]
+bf_positions<-chr28_bf$position[which(chr28_bf$position%in%positions)]
+
+#Get the results from bglmer (found 441 SNPs in common with the positions of the liftover)
+results_bg <- data.frame(fread(paste0("/Users/jrolland/Dropbox/1.en_cours/SticklebacksSalmons/121_chinook.v3/1.allele_frequencies/all_chr_bglmer.csv"), sep = ","))
+chr28_bg<-results_bg[which(results_bg$chr=="CM031226.1"),]
+bg_toplot<- -log10(chr28_bg$pvalue[which(chr28_bg$position%in%positions)])
+bg_positions<-chr28_bg$position[which(chr28_bg$position%in%positions)]
+
+#which are the positions above the threshold of 5pc in the Baypass or bglmer
+threshold95baypass<- 2.914742 #obtained from quantile(bf,0.95,na.rm=T) in the script 05. Analyses results BAYPASS and BGLMER
+threshold95bglmer<-3.249211 #obtained from quantile(bg,0.95,na.rm=T) in the script 05. Analyses results BAYPASS and BGLMER
+
+top_bf_latitude<-bf_positions[bf_toplot>threshold95baypass]
+# 59 positions
+# [1] 13417363 13422276 13461994 13465098 13466273 13466413 13466808 13466979 13467478 13467708 13468031 13468367 13470550 13523661 13523700 13523937 13523959 13524140 13524360 13524655
+#[21] 13524663 13524969 13525026 13525677 13526155 13526162 13526606 13526630 13526631 13532861 13533287 13533824 13536654 13536781 13537174 13537735 13538013 13538626 13538773 13538829
+#[41] 13540267 13540719 13540751 13540785 13540848 13543225 13543542 13547578 13547766 13548886 13550907 13552031 13552608 13552909 13554482 13555499 13557355 13581783 13594807
+
+top_bg_latitude<-bg_positions[bg_toplot>threshold95bglmer]
+#33 positions
+# [1] 13422894 13467478 13468031 13468367 13470550 13524655 13524663 13524969 13525026 13525677 13526155 13526606 13526630 13526631 13533824 13536654 13537174 13538013 13538626 13538773
+#[21] 13538829 13539970 13540267 13540719 13540751 13540785 13540848 13543225 13547766 13552031 13552608 13555499 13594807
+
+## 61 positions ranking at least in the  5% of Baypass or 5% of BGLMER for latitude for GREB1L/ROCK1 and the intergenic region
+topbf_bg_total<-unique(c(top_bf_latitude,top_bg_latitude))
+# [1] 13417363 13422276 13461994 13465098 13466273 13466413 13466808 13466979 13467478 13467708 13468031 13468367 13470550 13523661 13523700 13523937 13523959 13524140 13524360 13524655
+#[21] 13524663 13524969 13525026 13525677 13526155 13526162 13526606 13526630 13526631 13532861 13533287 13533824 13536654 13536781 13537174 13537735 13538013 13538626 13538773 13538829
+#[41] 13540267 13540719 13540751 13540785 13540848 13543225 13543542 13547578 13547766 13548886 13550907 13552031 13552608 13552909 13554482 13555499 13557355 13581783 13594807 13422894
+#[61] 13539970
+
+#33 positions ranking at least in the  5% of Baypass or 5% of BGLMER for latitude for GREB1L, ROCK1 and intergenic region (only 4 positions in GREB1L and 3 positions in Rock1, and 26 in the intergenic region) and also with a diff between spring and fall run
+positions_difflat_tot<-positions_diff95[positions_diff95%in%topbf_bg_total]
+# [1] 13461994 13465098 13466273 13466979 13523661 13523700 13523937 13523959 13524140 13524655 13524663 13525677 13526155 13526162 13532861 13533287 13536781 13538013 13538626 13538773
+#[21] 13538829 13540267 13540719 13540751 13540785 13540848 13543225 13543542 13547766 13548886 13552031 13552909 13554482
+
+##### intergenic
+# which are the positions both in the 5% of Baypass and in >0.95 for the intergenic region.
+baypass_intergenic<-positions_intergenic_diff95[positions_intergenic_diff95%in%top_bf_latitude]
+#26 positions
+# [1] 13523661 13523700 13523937 13523959 13524140 13524655 13524663 13525677 13526155 13526162 13532861 13533287 13536781 13538013 13538626 13538773 13538829 13540267 13540719 13540751
+#[21] 13540785 13540848 13543225 13543542 13547766 13548886
+
+# which are the positions both in the 5% of BGLMER and in >0.95 for the intergenic region.
+bglmer_intergenic<-positions_intergenic_diff95[positions_intergenic_diff95%in%top_bg_latitude]
+# 15 positions
+# 13524655 13524663 13525677 13526155 13538013 13538626 13538773 13538829 13540267 13540719 13540751 13540785 13540848 13543225 13547766
+
+#26 positions ranking at least in the  5% of Baypass or 5% of BGLMER for latitude for the intergenic region
+positions_difflat_intergenic<-positions_intergenic_diff95[positions_intergenic_diff95%in%topbf_bg_total]
+# [1] 13523661 13523700 13523937 13523959 13524140 13524655 13524663 13525677 13526155 13526162 13532861 13533287 13536781 13538013 13538626 13538773 13538829 13540267 13540719 13540751
+#[21] 13540785 13540848 13543225 13543542 13547766 13548886
+
+#############################
+#Figure S11 . Make one plot for both BGLMER AND BAYPASS with allele differences 
+#with all liftover snp in black
+#positions in red for positions associated to latitude for baypass top_bf_latitude and top_bg_latitude
+#allele frequencies differences abs(freq_fall-freq_spring)
+
+#region between GREB1L and ROCK1	Chr28 : 13,496,979 - 13,548,901	REG|LOC112226774|rock1	CM031226.1_13496979_13548901
+#rock1	Chr28 : 13,548,902 - 13619775 	rock1	CM031226.1_13548902_13619775 
+#greb1l	Chr28 : 13,415,735 - 13,496,978	LOC112226774	CM031226.1_13415735_13496978
+
+diff<-abs(freq_fall-freq_spring)
+names(diff)<-sub(names(diff),pattern="CM031226.1_",replacement="")
+
+# Plot on the greb1l - rock1 region
+pdf("/Users/jrolland/Dropbox/1.en_cours/SticklebacksSalmons/Revision_PNAS/new_figures/Figure S11 - thompson2020_allele_freq_diff_greb1l-rock1_ liftover.pdf")
+
+plot(positions, as.numeric(abs(freq_fall-freq_spring)), type="n", las = 1, ylab = "abs(allele frequency difference)", xlab = "Position on chromosome 28",main = "", ylim = c(0, 1),pch=19)
+rect(xleft = 13415735, ybottom = -1, xright = 13496978, ytop = 1, col = "grey85", border = NA)
+rect(xleft = 13548902, ybottom = -1, xright = 13619775, ytop = 1, col = "grey85", border = NA)
+
+#all positions of allele diff in black
+points( positions, as.numeric(abs(freq_fall-freq_spring)) , pch = 19, cex = 0.6, col = "black")
+
+# top 5% latitude association in BGLMER or BAYPASS in blue
+points( topbf_bg_total, diff[as.character(topbf_bg_total)], pch = 19, cex = 0.6, col = "blue")
+
+#Both allele diff and latitude in gold
+points( positions_difflat_tot, diff[as.character(positions_difflat_tot)], pch = 19, cex = 0.6, col = "red")
+
+#alleles diff >0.95 in red
+#points( positions[which(abs(freq_fall-freq_spring)>0.95)], as.numeric(abs(freq_fall-freq_spring))[which(abs(freq_fall-freq_spring)>0.95)] , pch = 16, cex = 0.5, col = "firebrick")
+
+text("GREB1L", x = 13415735 + (13496978-13415735 )/2, y = -0.05, pos = 3 )
+text("ROCK1", x = 13548902 + (13619775 - 13548902 )/2, y = -0.05, pos = 3 )
+
+dev.off()
+
+###################
+# subpart of the Figure S15 - Heatmaps plot black/white with the list of 31 alleles with spring/fall allele difference >0.95.
+
+results_bf <- data.frame(fread(paste0("all_chr_baypass.csv"), sep = ","))
+chr28<-results_bf[which(results_bf$chr=="CM031226.1"),]
+
+snpmatrix<-read.table("chr28.snpmatrix_chinook.csv",sep=",",h=T)
+snpmatrix_intergenic<-snpmatrix[which(chr28$position>=13496979 & chr28$position<=13548901),]
+chr28_positions_intergenic<-chr28$position[which(chr28$position>=13496979 & chr28$position<=13548901)]
+
+diff_mat<-rep(0,208)
+diff_mat[which(chr28_positions_intergenic%in%positions_intergenic_diff95)]<-1
+
+pdf(width=70, height=10,file="diff_mat_tompsonliftover.pdf")
+levelplot(as.matrix(diff_mat,1,208))
+dev.off()
+
+########
+# Figure S12
+# Plot frequency of the 26 SNP in the top 5percent in Baypass and bglmer and 0.95 diff in Thompson 2020 against latitude not including the 10 populations of Thompson
+
+sampData <- read.csv("latitude_samples.csv", sep=";")
+latitude_river<-rep(NA,29)
+names(latitude_river)<-unique(sampData$river)
+
+for(i in 1:29){
+latitude_river[i]<-sampData$latitude[which(sampData$river==unique(sampData$river)[i])]
+}
+
+freq<-freq[names(latitude_river),]
+
+pdf(width=15, height=7,file="Figure S7 - Frequency of the 26 intergenic SNPs in the top 5pc in Baypass or Bglmer and with 0.95 freq diff.pdf")
+for (i in 1:length(positions_difflat_intergenic)){
+plot(latitude_river,freq[,paste0("CM031226.1_",positions_difflat_intergenic)][,i],xlab="Latitude",ylab="Frequency",type="l",xlim=c(36,62),ylim=c(0,1))
+par(new=T)
+}
+dev.off()
+
+##################################
+freq_spring_zoom<-freq_spring
+freq_fall_zoom<-freq_fall
+freq_alaska_zoom<-freq_alaska
+positions_zoom<-positions
+
+#########################
+#FIGURE S13
+# Map the increase in frequency of the spring-like allele across the latitudinal gradient
+
+# identify the positions with 0.95 differences between spring and fall run
+
+# 0/178 alleles difference >0.95 for CLOCK1B
+# 76/461 alleles difference >0.95 for GREB1L-ROCK1
+# 0/109 alleles difference >0.95 for VGLL3
+# clock1A and six6 not found
+path_output<-"YOUR PATH"
+
+gene=3
+
+nalt_init <- as.data.frame(fread(paste0(path_output,"GREB1L.nALTallelesByRiver.csv")))
+
+# 461  positions are remaining
+names<-nalt_init[,1]
+#check that there are no other position from a chromosom other than 28
+nalt<-nalt_init[,-grep(colnames(nalt_init),pattern="CM031226",invert=T)]
+row.names(nalt) <- names
+#nalt <- nalt[,-1]
+
+ntot_init  <- as.data.frame(fread(paste0(path_output,"GREB1L.totAllelesByRiver.csv")))
+
+table(apply(ntot[grep(rownames(ntot), pattern="Spring"),paste("CM031226.1",positions_spring_fall,sep="_")],2,sum)-
+apply(nalt[grep(rownames(nalt), pattern="Spring"),paste("CM031226.1",positions_spring_fall,sep="_")],2,sum) )
+#Most of the snp have values >60
+# 0  1  2  3 61 62 66 68 70 78 79 80 81 84 
+#53  7  2  1  1  2  1  1  2  1  1  2  1  1 
+
+#replace the values of all individuals when the spring allele count is low in the spring populations
+position_to_change<-which(apply(nalt[grep(rownames(nalt), pattern="Spring"),paste("CM031226.1",positions_spring_fall,sep="_")],2,sum)<4)
+
+# recode the alleles that are spring 
+new_vectors<-ntot[,position_to_change]-nalt[,position_to_change]
+nalt[,position_to_change]<-new_vectors
+
+#map the variation of frequency with latitude
+river_run_latitude <- paste(sampData$river_run, sampData$latitude, sep = "|")
+table(river_run_latitude)
+
+river_run_latitude<-rep(NA,length(rownames(nalt)))
+for(i in 1:length(rownames(nalt))){
+river_run_latitude[i]<-as.numeric(sampData$latitude[which(sampData$river_run==rownames(nalt)[i])][1])
+}
+
+col<-rep("black",length(river_run_latitude))
+col[grep(rownames(nalt),pattern="Spring")]<-"green"
+col[grep(rownames(nalt),pattern="Fall")]<-"red"
+col[grep(rownames(nalt),pattern="Winter")]<-"blue"
+
+## FIGURE
+pdf(width=20, height=7,file="frequency_of_spring-like_positions_with_allele_frequency_0.95_in_spring_populations_across_latitude_spring=green_ fall=red_winter=blue.pdf")
+
+frequency_spring<-apply(nalt[,paste("CM031226.1",positions_spring_fall,sep="_")]/ntot[,paste("CM031226.1",positions_spring_fall,sep="_")],1,function(x)mean(x,na.rm=T))
+
+par(mfrow=c(1,2))
+plot(river_run_latitude[which(!col=="black")],frequency_spring[which(!col=="black")] ,ylab="Mean frequency of spring-run alleles per population", xlab="Latitude",ylim=c(0,1),xlim=c(35,65),col=col[which(!col=="black")], main="GREB1L, intergenic region and ROCK1\n between positions 13415735 and 13619775 (76 SNPs)" ,cex=1.5, pch=1)
+par(new=T)
+plot(river_run_latitude[which(col=="black")],frequency_spring[which(col=="black")] ,ylab="Mean frequency of spring-run alleles per population", xlab="Latitude",ylim=c(0,1),xlim=c(35,65),col=col[which(col=="black")], main="GREB1L, intergenic region and ROCK1\n between positions 13415735 and 13619775 (76 SNPs)" ,cex=1.5, pch=19)
+ss<-smooth.spline(river_run_latitude[which(col=="black")],frequency_spring[which(col=="black")],df=2.5)
+par(new=T)
+plot(ss$x,ss$y ,ylab="Mean frequency of spring-run alleles per population", xlab="Latitude",ylim=c(0,1),xlim=c(35,65),col=col[which(col=="black")], main="",type="l",lwd=2)
+
+# same plot in the duplication area between 13536082 et le SNP 13541889
+
+positions_spring_fall_duplication<-positions_spring_fall[positions_spring_fall%in%13536082:13541889]
+
+frequency_spring_duplication<-apply(nalt[,paste("CM031226.1",positions_spring_fall_duplication,sep="_")]/ntot[,paste("CM031226.1",positions_spring_fall_duplication,sep="_")],1,function(x)mean(x,na.rm=T))
+
+plot(river_run_latitude[which(!col=="black")],frequency_spring_duplication[which(!col=="black")] ,ylab="Mean frequency of spring-run alleles per population", xlab="Latitude",ylim=c(0,1),xlim=c(35,65),col=col[which(!col=="black")], main="Duplication in intergenic region\n between positions 13536082 and 13541889 (10 SNPs)", ,cex=1.5, pch=1)
+par(new=T)
+plot(river_run_latitude[which(col=="black")],frequency_spring_duplication[which(col=="black")] ,ylab="Mean frequency of spring-run alleles per population", xlab="Latitude",ylim=c(0,1),xlim=c(35,65),col=col[which(col=="black")], main="Duplication in intergenic region\n between positions 13536082 and 13541889 (10 SNPs)", ,cex=1.5, pch=19)
+ss<-smooth.spline(river_run_latitude[which(col=="black")],frequency_spring_duplication [which(col=="black")],df=2.5)
+par(new=T)
+plot(ss$x,ss$y ,ylab="Mean frequency of spring-run alleles per population", xlab="Latitude",ylim=c(0,1),xlim=c(35,65),col=col[which(col=="black")], main="",type="l",lwd=2)
+
+dev.off()
+
+############
+#Venn diagram - Figure S14
+
+library(ggvenn)
+#set.seed(20190708)
+#genes <- paste("gene",1:1000,sep="")
+#in the full region
+#total of 461 SNPs
+
+x <- list(
+"Abs. diff. fq. >0.95 between fall and spring CA \n (76 SNPs)" = as.character(positions_diff95), 						
+"Top 5% association with latitude\n in BGLMER or BAYPASS (61 SNPs)"  = as.character(topbf_bg_total),  		
+"Abs. diff. fq.<0.05 between spring CA and Alaska\n (202 SNPs)" = as.character(position_springlike_alaska)
+  )
+
+#if (!require(devtools)) install.packages("devtools")
+#devtools::install_github("yanlinlin82/ggvenn")
+#Usage:
+
+pdf(file="Figure SX - Venn diagram test3.pdf")
+par(mfrow=c(1,2))
+#"GREB1L, ROCK1 and their intergenic region (461 SNPs)"
+ggvenn(x, 
+ # fill_color = c("#0073C2FF", "#EFC000FF", "#868686FF", "#CD534CFF"), # for yellow, blue, grey, red
+ fill_color = c("#CD534CFF", "#0073C2FF", "#3BB143"), # for yellow, blue, red
+ stroke_size = 0.5, set_name_size = 3)
+  
+#"Intergenic region between GREB1L and ROCK1 (96 SNPs)"
+
+x <- list(
+"Abs. diff. fq. >0.95 between fall and spring CA \n (31 SNPs)" = (positions_diff95[positions_diff95%in%positions_inter]), 
+"Top 5% association with latitude\n in BGLMER or BAYPASS(38 SNPs)"  = (topbf_bg_total[topbf_bg_total%in%positions_inter]),  		
+"Abs. diff. fq. <0.05 between spring CA and Alaska\n (45 SNPs)" = (position_springlike_alaska[position_springlike_alaska%in%positions_inter])
+  )
+
+ggvenn( x, fill_color = c("#0073C2FF", "#EFC000FF", "#CD534CFF"), stroke_size = 0.5, set_name_size = 3) 
+dev.off()
