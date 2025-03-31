@@ -20,3 +20,8 @@ Using the reference genome here: https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/01
 06.script.compute.mean.results.per.gene.and.sliding.window.r compute the mean -log10pvalue and Bayes Factor per gene and per sliding window of 50 SNP.
 
 07.script.analyses.results.BAYPASS.and.BGLMER.r script computing the results found in the main text testing whether each region fall in the top 5%.
+
+08.Liftover analysis.merging.our.137indiv.with.160indiv.thompson.txt merge the two VCFs from our analysis and Thompson et al. 2020 analysis.
+
+09.Comparison.ALASKA.and.CALIFORNIA.after.liftover.txt describes how to merge datasets and run analyses in order to analyse the spring-run alleles (using california samples from Thompson et al.) across the latitudinal gradient.
+
